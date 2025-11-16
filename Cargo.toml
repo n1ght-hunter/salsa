@@ -15,8 +15,8 @@ salsa-macros = { version = "0.25.2", path = "components/salsa-macros", optional 
 boxcar = "0.2.13"
 crossbeam-queue = "0.3.12"
 crossbeam-utils = "0.8.21"
-hashbrown = "0.15"
-hashlink = "0.10"
+hashbrown = "0.16"
+hashlink = "0.11"
 indexmap = "2"
 intrusive-collections = "0.9.7"
 parking_lot = "0.12"
@@ -71,12 +71,12 @@ salsa-macros = { version = "=0.25.2", path = "components/salsa-macros" }
 crossbeam-channel = "0.5.15"
 dashmap = { version = "6", features = ["raw-api"] }
 eyre = "0.6.12"
-notify-debouncer-mini = "0.4.1"
+notify-debouncer-mini = { version = "0.7.0", features = ["crossbeam-channel"] }
 ordered-float = "5.0.0"
 
 # tests/benches
-annotate-snippets = "0.11.5"
-codspeed-criterion-compat = { version = "3.0.5", default-features = false }
+annotate-snippets = "0.12.9"
+codspeed-criterion-compat = { version = "4.1.0", default-features = false }
 expect-test = "1.5.1"
 rustversion = "1.0"
 test-log = { version = "0.2.18", features = ["trace"] }
