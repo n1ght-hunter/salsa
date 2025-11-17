@@ -37,7 +37,7 @@ where
         let mut output = vec![];
 
         // First ensure the result is up to date
-        self.fetch(db, zalsa, zalsa_local, key);
+        self.fetch(db, zalsa, &*zalsa_local, key);
 
         let db_key = self.database_key_index(key);
         let mut visited: FxHashSet<DatabaseKeyIndex> = FxHashSet::default();
@@ -94,7 +94,7 @@ where
     ) -> (Option<&'db AccumulatedMap>, InputAccumulatedValues) {
         let (zalsa, zalsa_local) = db.zalsas();
         // NEXT STEP: stash and refactor `fetch` to return an `&Memo` so we can make this work
-        let memo = self.refresh_memo(db, zalsa, zalsa_local, key);
+        let memo = self.refresh_memo(db, zalsa, &zalsa_local, key);
         (
             memo.revisions.accumulated(),
             memo.revisions.accumulated_inputs.load(),

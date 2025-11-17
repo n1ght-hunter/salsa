@@ -1,6 +1,9 @@
 //! Public API facades for the implementation details of [`Zalsa`] and [`ZalsaLocal`].
+use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::panic::RefUnwindSafe;
+
+use thread_local::ThreadLocal;
 
 use crate::sync::{Arc, Condvar, Mutex};
 use crate::zalsa::{ErasedJar, HasJar, Zalsa, ZalsaDatabase};
@@ -62,7 +65,7 @@ impl<Db: Database> StorageHandle<Db> {
     pub fn into_storage(self) -> Storage<Db> {
         Storage {
             handle: self,
-            zalsa_local: ZalsaLocal::new(),
+            zalsa_local: Arc::new(ThreadLocal::new()),
         }
     }
 }
@@ -84,13 +87,29 @@ pub struct Storage<Db> {
     handle: StorageHandle<Db>,
 
     /// Per-thread state
-    zalsa_local: zalsa_local::ZalsaLocal,
+    zalsa_local: Arc<ThreadLocal<RefCell<zalsa_local::ZalsaLocal>>>,
+}
+
+impl<Db> Storage<Db> {
+    /// Access the per-thread local state for this storage.
+    ///
+    /// This will create the local state on first access from a thread.
+    pub(crate) fn zalsa_local(&self) -> std::cell::Ref<'_, zalsa_local::ZalsaLocal> {
+        self.zalsa_local
+            .get_or(|| RefCell::new(zalsa_local::ZalsaLocal::new()))
+            .borrow()
+    }
 }
 
 impl<Db> Drop for Storage<Db> {
     fn drop(&mut self) {
-        self.zalsa_local
-            .record_unfilled_pages(self.handle.zalsa_impl.table());
+        if let Some(thread_zalsa) = Arc::get_mut(&mut self.zalsa_local) {
+            for zalsa_local in thread_zalsa.iter_mut() {
+                zalsa_local
+                    .get_mut()
+                    .record_unfilled_pages(self.handle.zalsa_impl.table());
+            }
+        }
     }
 }
 
@@ -118,7 +137,7 @@ impl<Db: Database> Storage<Db> {
     pub fn new(event_callback: Option<Box<dyn Fn(crate::Event) + Send + Sync + 'static>>) -> Self {
         Self {
             handle: StorageHandle::new(event_callback),
-            zalsa_local: ZalsaLocal::new(),
+            zalsa_local: Arc::new(ThreadLocal::new()),
         }
     }
 
@@ -132,8 +151,13 @@ impl<Db: Database> Storage<Db> {
     /// This will discard the local state of this [`Storage`], thereby returning a value that
     /// is both [`Sync`] and [`std::panic::UnwindSafe`].
     pub fn into_zalsa_handle(mut self) -> StorageHandle<Db> {
-        self.zalsa_local
-            .record_unfilled_pages(self.handle.zalsa_impl.table());
+        if let Some(thread_zalsa) = Arc::get_mut(&mut self.zalsa_local) {
+            for zalsa_local in thread_zalsa.iter_mut() {
+                zalsa_local
+                    .get_mut()
+                    .record_unfilled_pages(self.handle.zalsa_impl.table());
+            }
+        }
         let Self {
             handle,
             zalsa_local,
@@ -159,7 +183,7 @@ impl<Db: Database> Storage<Db> {
     /// Needs to be paired with a call to `reset_cancellation_flag`.
     fn cancel_others(&mut self) -> &mut Zalsa {
         debug_assert!(
-            self.zalsa_local
+            self.zalsa_local()
                 .try_with_query_stack(|stack| stack.is_empty())
                 == Some(true),
             "attempted to cancel within query computation, this is a deadlock"
@@ -226,7 +250,7 @@ impl<Db: Database> StorageBuilder<Db> {
     pub fn build(self) -> Storage<Db> {
         Storage {
             handle: StorageHandle::with_jars(self.event_callback, self.jars),
-            zalsa_local: ZalsaLocal::new(),
+            zalsa_local: Arc::new(ThreadLocal::new()),
         }
     }
 }
@@ -243,8 +267,11 @@ unsafe impl<T: HasStorage> ZalsaDatabase for T {
     }
 
     #[inline(always)]
-    fn zalsa_local(&self) -> &ZalsaLocal {
-        &self.storage().zalsa_local
+    fn zalsa_local<'a>(&'a self) -> &'a ZalsaLocal {
+        let res = &self.storage().zalsa_local();
+        let res = &**res;
+        // SAFETY: We return a reference with the same lifetime as `self`, so this is safe.
+        unsafe { &*(res as *const ZalsaLocal) }
     }
 }
 
@@ -252,7 +279,7 @@ impl<Db: Database> Clone for Storage<Db> {
     fn clone(&self) -> Self {
         Self {
             handle: self.handle.clone(),
-            zalsa_local: ZalsaLocal::new(),
+            zalsa_local: Arc::clone(&self.zalsa_local),
         }
     }
 }

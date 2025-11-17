@@ -76,7 +76,7 @@ where
     ) -> VerifyResult {
         let (zalsa, zalsa_local) = db.zalsas();
         let memo_ingredient_index = self.memo_ingredient_index(zalsa, id);
-        zalsa.unwind_if_revision_cancelled(zalsa_local);
+        zalsa.unwind_if_revision_cancelled(&*zalsa_local);
 
         loop {
             let database_key_index = self.database_key_index(id);
@@ -110,7 +110,7 @@ where
 
             if let Some(mcs) = self.maybe_changed_after_cold(
                 zalsa,
-                zalsa_local,
+                &*zalsa_local,
                 db,
                 id,
                 revision,
